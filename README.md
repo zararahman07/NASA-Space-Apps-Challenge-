@@ -2,6 +2,8 @@
 
 A web tool a Mars astronaut could use to plan science walks across the **boxwork terrain on Mount Sharp, Gale Crater**, built for the NASA Space Apps Challenge. It layers NASA data, plans a multi-stop route, and shows the safety information a crew needs before leaving the habitat.
 
+**Live Demo can be found here:** https://marswalk-tau.vercel.app/
+
 ## Science goal and location
 
 - **Goal:** study the boxwork, a network of resistant ridges (~5 m wide) enclosing hollows 10–20 m across, thought to record groundwater flowing through rock cracks.
