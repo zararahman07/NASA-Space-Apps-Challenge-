@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MARSWalk — Boxwork Science EVA Planner</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Orbitron:wght@600;800&display=swap" rel="stylesheet">
+<style>
+body{font-family:Inter,sans-serif;background:#080403;color:#e2e8f0}
+.orb{font-family:Orbitron,sans-serif}.mono{font-family:'Courier New',monospace}
+.hud{background:rgba(18,12,16,.88);border:1px solid rgba(255,87,34,.25);border-radius:12px}
+#map{height:500px;background:#1a0d07;border-radius:12px}
+.chip{font-size:11px;padding:2px 8px;border-radius:6px;border:1px solid;font-family:'Courier New',monospace}
+.live{color:#34d399;border-color:#34d39966}.snap{color:#fbbf24;border-color:#fbbf2466}.err{color:#fb7185;border-color:#fb718566}.mdl{color:#22d3ee;border-color:#22d3ee66}
+.tab.on{color:#ff5722;background:#3e150999;border:1px solid #ff572266}
+input[type=range]{width:100%;accent-color:#ff5722}
+select,input[type=number]{background:#0f0a0c;border:1px solid #334155;border-radius:6px;padding:2px 6px}
+.btn{padding:2px 8px;border-radius:6px;border:1px solid #475569;font-size:11px}.btn.on{background:#c2410c;border-color:#fb923c;color:#fff}
+td,th{padding:3px 6px;text-align:left}
+</style>
+</head>
+<body class="min-h-screen">
+<header class="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-[1000] bg-slate-950/95">
+  <div><h1 class="orb text-xl font-extrabold tracking-wider text-orange-500">MARSWALK</h1>
+  <p class="text-xs text-slate-400">Boxwork science EVA planner · Mount Sharp, Gale Crater · NASA data</p></div>
+  <div class="mono text-xs flex flex-wrap gap-x-5 gap-y-1 text-slate-300">
+    <span>Local solar time <b id="h-ltst" class="text-cyan-300">--</b></span>
+    <span>Season Ls <b id="h-ls" class="text-amber-300">--</b>°</span>
+    <span>Sun elev. <b id="h-el" class="text-amber-300">--</b>°</span>
+    <span>Space weather <b id="h-sw" class="text-slate-400">checking…</b></span>
+  </div>
+</header>
+<nav class="px-3 py-2 flex flex-wrap gap-1 border-b border-slate-800 text-xs font-semibold">
+  <button class="tab on px-3 py-2 rounded-md" onclick="tab('map',this)">Mission map &amp; route</button>
+  <button class="tab px-3 py-2 rounded-md text-slate-400" onclick="tab('env',this)">Environment</button>
+  <button class="tab px-3 py-2 rounded-md text-slate-400" onclick="tab('pro',this)">EVA protocols</button>
+  <button class="tab px-3 py-2 rounded-md text-slate-400" onclick="tab('src',this)">Data &amp; sources</button>
+</nav>
+
+<main class="p-3 md:p-5 max-w-7xl mx-auto space-y-4">
+<section id="t-map" class="space-y-4">
+  <div class="hud p-4 text-sm text-slate-300 space-y-1">
+    <div><b class="text-orange-400">Science objective.</b> Study the boxwork: a network of resistant ridges (~5 m wide) enclosing 10–20 m hollows on Mount Sharp, thought to record groundwater flowing through rock cracks. Curiosity explored it from sol 4534 (May 2025) to about sol 4844.</div>
+    <div class="text-xs text-slate-400"><b>Layered data:</b> topography (MOLA + rover elevation) · optical (Viking, rover photos) · geophysical (rover tilt) · chemical/spectral (CheMin, ChemCam findings per stop) · radiation (RAD baseline + live DONKI) · atmosphere/thermal (computed from Mars24). Stops snap to the nearest recorded Curiosity drive for the sol shown.</div>
+    <div id="banner" class="hidden text-rose-300 text-xs"></div>
+  </div>
+  <div class="grid lg:grid-cols-3 gap-4">
+    <div class="lg:col-span-2 space-y-2">
+      <div class="flex flex-wrap gap-3 items-center text-xs">
+        <label>Colour track by <select id="colorby" onchange="S.color=this.value;drawMap(false)"><option value="tilt">Rover tilt (slope)</option><option value="elev">Elevation</option></select></label>
+        <span id="st-trav" class="chip snap">traverse…</span><span id="st-tiles" class="chip snap">tiles…</span>
+        <span class="text-slate-500">Click a track point to add a custom stop.</span>
+      </div>
+      <div id="map"></div>
+      <div class="hud p-3"><div class="text-xs text-slate-400 mb-1">Elevation along the boxwork traverse (colour = tilt: <span class="text-emerald-400">&lt;10°</span> <span class="text-amber-400">10–20°</span> <span class="text-rose-400">&gt;20°</span>; numbered lines = stops)</div>
+        <canvas id="prof" height="120" class="w-full"></canvas></div>
+    </div>
+
+    <div class="space-y-3 text-xs">
+      <div class="hud p-4"><h3 class="orb text-orange-400 text-sm mb-2">Science stops <span class="text-slate-500 normal-case">(order = visit order)</span></h3><div id="stops" class="space-y-1.5"></div>
+        <label class="block mt-2">Base camp (habitat) at <select id="hab" onchange="refresh(true)"></select></label></div>
+      <div class="hud p-4 space-y-2"><h3 class="orb text-orange-400 text-sm">Crew &amp; EVA settings</h3>
+        <div>Crew mode <select id="mode" onchange="refresh()"><option value="1">Solo on foot</option><option value="0.95">Pair (buddy system)</option><option value="1.6">Pair + rover assist</option></select></div>
+        <div>Carried payload <b id="pay-v">10</b> kg <input id="pay" type="range" min="0" max="40" value="10" oninput="$('pay-v').textContent=this.value;refresh()"></div>
+        <div>Start at local solar time <b id="st-v">08:00</b> <input id="st" type="range" min="0" max="24" step="0.5" value="8" oninput="$('st-v').textContent=fmt(+this.value);refresh()"></div>
+        <div class="flex gap-3"><label>EVA limit (h) <input id="lim" type="number" value="7" min="1" max="12" step="0.5" class="w-14" onchange="refresh()"></label>
+          <label>Science per stop (min) <input id="sci" type="number" value="60" min="0" step="15" class="w-16" onchange="refresh()"></label></div>
+        <div class="text-[10px] text-slate-500">Assumptions (editable in code): 2.5 km/h walking × 0.6 pressure-suit factor, Tobler slope penalty from rover tilt, payload slows walking 0.4% per kg.</div></div>
+    </div>
+  </div>
+
+  <div class="hud p-4 text-xs space-y-3">
+    <div class="flex flex-wrap items-center gap-2"><h3 class="orb text-orange-400 text-sm mr-2">EVA plan</h3><span id="days"></span><span id="plan-sum" class="text-slate-300"></span></div>
+    <div class="grid lg:grid-cols-3 gap-4">
+      <div class="lg:col-span-2 overflow-x-auto"><table class="w-full mono"><thead class="text-slate-400"><tr><th>Leg</th><th>Dist</th><th>Time</th><th>Max tilt</th><th>Δ elev</th><th>Arrive</th><th>Sun</th><th>Temp*</th><th>Dose</th></tr></thead><tbody id="legs"></tbody></table>
+        <div class="text-[10px] text-slate-500 mt-1">*Air temperature is a model (−80 to −5 °C day/night curve), not a measurement.</div></div>
+      <div class="space-y-3"><div id="metrics" class="grid grid-cols-2 gap-2 mono"></div><div id="checks" class="space-y-1"></div></div>
+    </div>
+  </div>
+  <div class="hud p-4 text-xs"><h3 class="orb text-orange-400 text-sm mb-1">What you will see: <span id="pov-name" class="text-slate-300">select a stop</span></h3>
+    <div id="pov" class="grid grid-cols-3 md:grid-cols-6 gap-1.5 text-slate-400"></div><div id="pov-note" class="mt-1 text-[10px] text-slate-500"></div></div>
+</section>
+
+<section id="t-env" class="hidden grid md:grid-cols-2 gap-4">
+  <div class="hud p-4 space-y-2 text-xs"><h3 class="orb text-cyan-300 text-sm">Atmosphere at Gale <span class="chip snap">NASA SAM, embedded</span></h3>
+    <p class="text-slate-400">Mean mixing ratios from Curiosity's SAM instrument (Trainer et al., 2019). Pressure is under 1% of Earth sea level: suits are mandatory.</p><div id="gas" class="space-y-2 mono"></div></div>
+  <div class="hud p-4 space-y-2 text-xs"><h3 class="orb text-rose-400 text-sm">Radiation <span class="chip snap">NASA RAD, embedded</span></h3>
+    <p>Average surface dose equivalent at Gale: <b>0.67 mSv per day</b> (absorbed 0.210 ± 0.040 mGy/day), measured by Curiosity's RAD (Hassler et al., 2014). The cruise to Mars was 1.8 mSv/day. The plan converts this to a dose per EVA; suit shielding and solar storms are not included.</p>
+    <div class="p-2 rounded bg-slate-950 border border-slate-800">Space weather: <b id="sw-detail">checking…</b> <span id="st-sw" class="chip snap">DONKI</span></div></div>
+  <div class="hud p-4 space-y-2 text-xs"><h3 class="orb text-amber-300 text-sm">Sol timeline <span class="chip mdl">computed model</span></h3>
+    <p>Sun elevation and season come from the Mars24 (Allison &amp; McEwen) algorithm, validated against the Curiosity landing (Ls 150.7). The temperature curve is an assumption.</p><canvas id="sol" height="90" class="w-full"></canvas></div>
+  <div class="hud p-4 text-xs"><h3 class="orb text-emerald-400 text-sm mb-1">Season &amp; dust</h3><p id="season" class="text-slate-300"></p></div>
+</section>
+
+<section id="t-pro" class="hidden space-y-3 text-xs">
+  <p class="text-slate-400">Cards react to live data and the selected EVA. Guidance for this prototype, not flight rules.</p><div id="pro" class="grid md:grid-cols-2 gap-3"></div>
+</section>
+
+<section id="t-src" class="hidden space-y-4 text-xs">
+  <div class="hud p-4"><div class="flex items-center gap-3 mb-2"><h3 class="orb text-cyan-300 text-sm">NASA connection test</h3><button onclick="testAll()" class="px-3 py-1 rounded bg-orange-600 text-white font-semibold">Run test</button></div>
+    <div id="diag" class="space-y-1 mono text-slate-400">Press “Run test” to check every NASA service from this browser.</div></div>
+  <div class="hud p-4"><h3 class="orb text-cyan-300 text-sm mb-2">Live connections</h3><div id="status" class="space-y-1 mono"></div></div>
+  <div class="hud p-4"><h3 class="orb text-cyan-300 text-sm mb-2">Datasets &amp; where they are used</h3>
+    <table class="w-full text-[11px]"><thead class="text-slate-400"><tr><th>Dataset</th><th>Used for</th><th>Status</th></tr></thead><tbody id="ds"></tbody></table></div>
+  <div class="hud p-4 text-slate-400">Boxwork facts and sol ranges come from NASA's Curiosity mission blog and the 2025 GSA / LPSC abstracts. Tag <span class="chip mdl">model</span> = computed by this app from stated assumptions.</div>
+</section>
+</main>
+
+<script>
+const KEY='DEMO_KEY',R=3396190,MH=1.0274912517,SOL0=4500,SOL1=4880,
+ SITE={lat:-4.5895,lon:137.4417,rover:'curiosity',url:'https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json'};
+const STOPS0=[
+ {id:'c',name:'Boxwork contact',sol:4534,tag:'CHEMICAL',on:false,why:'Where Curiosity crossed from the Layered Sulfate unit into the boxwork unit (sol 4534). The bedrock is friable mudstone with more Si and Al and less Mg and S.'},
+ {id:'a',name:'Altadena drill site',sol:4570,tag:'SPECTRAL / XRD',on:true,why:'First boxwork drill target. CheMin X-ray diffraction found phyllosilicates (clays), largely absent from the surrounding sulfate unit.'},
+ {id:'n',name:'Nevado Sajama ridgetop',sol:4720,tag:'GEOLOGIC',on:true,why:'Ridgetop drill site (360° panorama, sols 4714–4741). Ridges stand 1–2 m tall and ~9 m across, with sand-filled hollows between them.'},
+ {id:'s',name:'Southern boxwork boundary',sol:4844,tag:'CONTACT',on:true,why:'Curiosity left the boxwork around sol 4844, heading back into the sulfate unit. Compare both rock types here.'}];
+const $=id=>document.getElementById(id),rad=d=>d*Math.PI/180;
+const S={all:[],pts:[],stops:[],days:[],day:0,sw:null,status:{},color:'tilt',cD:[],cT:[]};
+function chip(id,cls,txt,key,full){const e=$(id);if(e){e.className='chip '+cls;e.textContent=txt}S.status[key]=[cls,full||txt]}
+function tab(n,btn){['map','env','pro','src'].forEach(t=>$('t-'+t).classList.toggle('hidden',t!==n));
+ document.querySelectorAll('.tab').forEach(b=>{b.classList.remove('on');b.classList.add('text-slate-400')});btn.classList.add('on');btn.classList.remove('text-slate-400');
+ if(n==='map')setTimeout(()=>{map.invalidateSize();drawProf()},50);if(n==='env')drawSol();if(n==='src')renderSrc()}
+const hav=(p,q)=>{const dl=rad(q.lat-p.lat),dn=rad(q.lon-p.lon),x=Math.sin(dl/2)**2+Math.cos(rad(p.lat))*Math.cos(rad(q.lat))*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(x))};
+async function getJ(u,ms=15000){const tries=location.protocol.startsWith('http')?['/api/nasa?u='+encodeURIComponent(u),u]:[u];let last;
+ for(const t of tries){const c=new AbortController(),id=setTimeout(()=>c.abort(),ms);try{const r=await fetch(t,{signal:c.signal});if(!r.ok)throw new Error('HTTP '+r.status+(t===u?' (direct)':' (proxy)'));const j=await r.json();getJ.via=t===u?'direct':'proxy';return j}catch(e){last=e}finally{clearTimeout(id)}}
+ throw last}
+
+/* ---- Mars clock (Allison & McEwen 2000; validated: Curiosity landing Ls 150.7) ---- */
+function marsNow(lon,lat,t=Date.now()){const jd=t/864e5+2440587.5+69.184/86400,dj=jd-2451545,msd=(jd-2451549.5)/MH+44796-.00096,mtc=(24*msd)%24;
+ const M=rad((19.3871+.52402073*dj)%360),A=[.0071,.0057,.0039,.0037,.0021,.002,.0018],T=[2.2353,2.7543,1.1177,15.7866,2.1354,2.4694,32.8493],P=[49.409,168.173,191.837,21.736,15.704,95.528,49.095];
+ let pbs=0;A.forEach((a,i)=>pbs+=a*Math.cos(rad(.985626*dj/T[i]+P[i])));
+ const nm=(10.691+3e-7*dj)*Math.sin(M)+.623*Math.sin(2*M)+.05*Math.sin(3*M)+.005*Math.sin(4*M)+.0005*Math.sin(5*M)+pbs;
+ const ls=(270.3863+.5240384*dj+nm)%360,L=rad(ls),eot=(2.861*Math.sin(2*L)-.071*Math.sin(4*L)+.002*Math.sin(6*L)-nm)/15;
+ const ltst=(((mtc+lon/15)%24+24)%24+eot+24)%24,dec=Math.asin(.42565*Math.sin(L))+rad(.25)*Math.sin(L);
+ return{ls,dec,ltst,el:sunEl(lat,dec,ltst)}}
+const sunEl=(lat,dec,h)=>Math.asin(Math.sin(rad(lat))*Math.sin(dec)+Math.cos(rad(lat))*Math.cos(dec)*Math.cos(rad(15*(h-12))))*180/Math.PI;
+const fmt=h=>{h=((h%24)+24)%24;return String(Math.floor(h)).padStart(2,'0')+':'+String(Math.floor((h%1)*60)).padStart(2,'0')};
+const tmod=h=>-42.5+37.5*Math.cos(2*Math.PI*(h-13)/24);
+function tick(){const m=marsNow(SITE.lon,SITE.lat);$('h-ltst').textContent=fmt(m.ltst);$('h-ls').textContent=m.ls.toFixed(1);$('h-el').textContent=m.el.toFixed(0)}
+setInterval(tick,1000);
+
+/* ---- Map ---- */
+const map=L.map('map',{crs:L.CRS.EPSG4326,minZoom:0,maxZoom:12,zoomSnap:.5}).setView([SITE.lat,SITE.lon],6);
+const TREK='https://trek.nasa.gov/tiles/Mars/EQ/',MOLA='Mars_MGS_MOLA_ClrShade_merge_global_463m/1.0.0/default/default028mm/';
+const mola=L.tileLayer(TREK+MOLA+'{z}/{y}/{x}.jpg',{maxNativeZoom:6,attribution:'NASA/JPL Mars Trek · MGS MOLA'}),
+ vik=L.tileLayer(TREK+'Viking_MDIM21_ClrMosaic_global_232m/1.0.0/default/default028mm/{z}/{y}/{x}.jpg',{maxNativeZoom:7,attribution:'NASA/JPL Mars Trek · Viking MDIM 2.1'});
+let okT=0;[mola,vik].forEach(l=>{l.on('tileload',()=>{okT++;chip('st-tiles','live','tiles live','tiles','Mars Trek tiles loading')});l.on('tileerror',()=>{if(!okT)chip('st-tiles','err','tiles blocked','tiles','Mars Trek tiles failed (offline, blocked or URL changed)')})});
+const bx=L.layerGroup(),tr=L.layerGroup(),st=L.layerGroup(),rt=L.layerGroup();
+mola.addTo(map);[bx,tr,st,rt].forEach(g=>g.addTo(map));
+L.control.layers({'MOLA elevation (topographic)':mola,'Viking colour (optical)':vik,'Plan view (no imagery)':L.layerGroup()},{'Boxwork campaign path':bx,'Rover track (tilt / elevation)':tr,'Science stops':st,'Planned EVA routes':rt},{collapsed:false}).addTo(map);
+const tc=t=>t==null?'#94a3b8':t<10?'#34d399':t<20?'#fbbf24':'#fb7185';
+const ec=f=>`hsl(${220-f*190},80%,${50+10*f}%)`,DAYC=['#00f0ff','#f472b6','#a3e635','#f59e0b','#c084fc','#60a5fa'];
+
+/* ---- Load traverse ---- */
+async function init(){let pts=null;
+ try{const j=await getJ(SITE.url),f=j.features||j;
+  pts=f.map(x=>{const p=x.properties||x,c=x.geometry&&x.geometry.coordinates;return{sol:+p.sol,drive:+p.drive,lat:+(p.lat??(c&&c[1])),lon:+(p.lon??(c&&c[0])),elev:+(p.elev_geoid??p.elev_radii),tilt:p.tilt==null?null:+p.tilt}})
+   .filter(p=>isFinite(p.lat)&&isFinite(p.lon)&&isFinite(p.sol)).sort((a,b)=>a.sol-b.sol||a.drive-b.drive);
+  if(pts.length<5)throw new Error('traverse file empty');const latest=pts.at(-1).sol;
+  pts=pts.filter(p=>p.sol>=SOL0&&p.sol<=SOL1);if(pts.length<10)throw new Error('no drives for sols '+SOL0+'–'+SOL1+' (latest sol in file: '+latest+')');
+  chip('st-trav','live','traverse live','trav','NASA MMGIS waypoints via '+getJ.via+' — '+pts.length+' drives, sols '+pts[0].sol+'–'+pts.at(-1).sol);
+  try{localStorage.setItem('mw_pts',JSON.stringify(pts))}catch(_){}}
+ catch(e){let c=null;try{c=JSON.parse(localStorage.getItem('mw_pts'))}catch(_){}
+  if(c&&c.length>9){pts=c;chip('st-trav','snap','cached traverse','trav','Live traverse failed ('+e.message+'); using the copy cached from your last successful load')}
+  else{pts=[];chip('st-trav','err','traverse failed','trav','Live traverse failed: '+e.message);$('banner').classList.remove('hidden');$('banner').textContent='Could not load Curiosity’s boxwork drives ('+e.message+'). Open the Data & sources tab and run the connection test. The planner needs this live data and will not invent positions.'}}
+ S.pts=pts;if(pts.length){S.stops=STOPS0.map(s=>({...s,idx:snap(s.sol)}));fillHab();map.fitBounds(L.latLngBounds(pts.map(p=>[p.lat,p.lon])).pad(.25),{maxZoom:10})}
+ refresh(true);pollSW()}
+const snap=sol=>{const i=S.pts.findIndex(p=>p.sol>=sol);return i<0?S.pts.length-1:i};
+function fillHab(){const v=$('hab').value||'c';$('hab').innerHTML=S.stops.map(s=>`<option value="${s.id}">${s.name}</option>`).join('');$('hab').value=S.stops.some(s=>s.id===v)?v:'c'}
+const habIdx=()=>{const s=S.stops.find(x=>x.id===$('hab').value);return s?s.idx:0};
+
+/* ---- Planner: pack stops into EVAs (each EVA = base camp → stops → base camp along the rover-proven track) ---- */
+function prep(){const P=S.pts,f=+$('mode').value*(1-.004*+$('pay').value),v0=2.5/3.6*.6*f;S.cD=[0];S.cT=[0];
+ for(let i=1;i<P.length;i++){const l=hav(P[i-1],P[i]),ts=[P[i].tilt,P[i-1].tilt].filter(x=>x!=null),t=ts.length?ts.reduce((a,b)=>a+b)/ts.length:0;
+  S.cD.push(S.cD[i-1]+l);S.cT.push(S.cT[i-1]+l/(v0*Math.exp(-3.5*Math.tan(rad(t)))))}}
+const segMax=(i,j)=>{let m=null;for(let k=Math.min(i,j)+1;k<=Math.max(i,j);k++){const t=S.pts[k].tilt;if(t!=null)m=Math.max(m??0,t)}return m};
+function plan(){S.days=[];if(!S.pts.length)return;prep();const H=habIdx(),lim=+$('lim').value,sci=+$('sci').value/60,T=(i,j)=>Math.abs(S.cT[j]-S.cT[i])/3600;
+ const dayT=a=>{let t=a.length*sci,p=H;a.forEach(s=>{t+=T(p,s.idx);p=s.idx});return t+T(p,H)};
+ let cur=[];const days=[];S.stops.filter(s=>s.on).forEach(s=>{const tr=cur.concat(s);if(cur.length&&dayT(tr)>lim){days.push(cur);cur=[s]}else cur=tr});if(cur.length)days.push(cur);
+ const dec=marsNow(SITE.lon,SITE.lat).dec,st0=+$('st').value;
+ S.days=days.map(a=>{const seq=[{idx:H,name:'Base camp'},...a,{idx:H,name:'Base camp'}],legs=[];let t=0,d=0,mx=null,minEl=sunEl(SITE.lat,dec,st0),minT=tmod(st0);
+  for(let k=1;k<seq.length;k++){const p=seq[k-1],q=seq[k],tt=T(p.idx,q.idx),dd=Math.abs(S.cD[q.idx]-S.cD[p.idx]),tl=segMax(p.idx,q.idx);t+=tt;d+=dd;if(tl!=null)mx=Math.max(mx??0,tl);
+   const arr=st0+t/MH,el=sunEl(S.pts[q.idx].lat,dec,arr),tp=tmod(arr);minEl=Math.min(minEl,el);minT=Math.min(minT,tp);
+   legs.push({n:p.name+' → '+q.name,dd,tt,tl,de:S.pts[q.idx].elev-S.pts[p.idx].elev,arr,el,tp,dose:.67/24.66*t});if(k<seq.length-1)t+=sci}
+  return{stops:a,seq,legs,total:t,dist:d,mx,minEl,minT,dose:.67/24.66*t,over:t>lim}});
+ if(S.day>=S.days.length)S.day=0}
+
+/* ---- Render ---- */
+function refresh(fit){plan();renderStops();renderDays();renderDay();drawMap(fit);drawProf();renderPro();const s=S.stops.find(x=>x.id===$('hab').value);if(fit&&S.pts.length)loadPOV(s)}
+function renderStops(){$('stops').innerHTML=S.stops.map((s,k)=>`<div class="p-2 rounded bg-slate-950 border border-slate-800"><div class="flex items-center gap-2"><input type="checkbox" ${s.on?'checked':''} onchange="S.stops[${k}].on=this.checked;refresh()">
+  <b class="flex-1 text-slate-100">${s.name}</b><span class="mono text-slate-500">sol ${S.pts[s.idx]?S.pts[s.idx].sol:'—'}</span>
+  <button class="btn" onclick="mv(${k},-1)">▲</button><button class="btn" onclick="mv(${k},1)">▼</button><button class="btn" onclick="viewStop(${k})">view</button>${s.custom?`<button class="btn" onclick="delStop(${k})">✕</button>`:''}</div>
+  <div class="text-[10px] text-cyan-300 mono mt-1">${s.tag}</div><div class="text-slate-400 mt-0.5">${s.why}</div></div>`).join('')}
+function mv(k,d){const j=k+d;if(j<0||j>=S.stops.length)return;[S.stops[k],S.stops[j]]=[S.stops[j],S.stops[k]];refresh()}
+function delStop(k){S.stops.splice(k,1);fillHab();refresh()}
+function addCustom(i){const p=S.pts[i];S.stops.push({id:'u'+Date.now(),name:'Custom stop (sol '+p.sol+')',sol:p.sol,tag:'USER-SELECTED',on:true,custom:true,idx:i,why:'Point you picked on Curiosity’s recorded track.'});fillHab();refresh()}
+function viewStop(k){const s=S.stops[k],p=S.pts[s.idx];map.setView([p.lat,p.lon],10);loadPOV(s)}
+function renderDays(){$('days').innerHTML=S.days.map((d,i)=>`<button class="btn ${i===S.day?'on':''}" onclick="S.day=${i};renderDays();renderDay();drawMap(true);renderPro()">EVA ${i+1}${d.over?' ⚠':''}</button>`).join(' ');
+ const n=S.days.length,tot=S.days.reduce((a,d)=>a+d.total,0);$('plan-sum').textContent=n?` ${n} EVA${n>1?'s':''} needed · ${tot.toFixed(1)} h total · ${S.days.reduce((a,d)=>a+d.dose,0).toFixed(2)} mSv baseline dose`:' Tick at least one science stop.'}
+function renderDay(){const d=S.days[S.day],lim=+$('lim').value;if(!d){$('legs').innerHTML='';$('metrics').innerHTML='';$('checks').innerHTML='';return}
+ $('legs').innerHTML=d.legs.map(l=>`<tr class="border-t border-slate-800"><td>${l.n}</td><td>${(l.dd/1000).toFixed(2)} km</td><td>${l.tt.toFixed(1)} h</td><td style="color:${tc(l.tl)}">${l.tl==null?'n/a':l.tl.toFixed(0)+'°'}</td><td>${l.de>=0?'+':''}${l.de.toFixed(0)} m</td><td>${fmt(l.arr)}</td><td>${l.el.toFixed(0)}°</td><td>${l.tp.toFixed(0)} °C</td><td>${l.dose.toFixed(2)}</td></tr>`).join('');
+ $('metrics').innerHTML=[['Distance',(d.dist/1000).toFixed(2)+' km'],['EVA time',d.total.toFixed(1)+' h'],['Max tilt',d.mx==null?'n/a':d.mx.toFixed(0)+'°'],['Dose (mSv)',d.dose.toFixed(2)],['Coldest*',d.minT.toFixed(0)+' °C'],['Min sun',d.minEl.toFixed(0)+'°']]
+  .map(x=>`<div class="bg-slate-950 border border-slate-800 rounded p-2"><div class="text-slate-500 text-[10px]">${x[0]}</div><b class="text-slate-100">${x[1]}</b></div>`).join('');
+ const row=(o,t)=>`<div class="${o===1?'text-emerald-400':o===0?'text-rose-400':'text-amber-300'}">${o===1?'✔':o===0?'✖':'!'} ${t}</div>`,f=+$('mode').value;
+ $('checks').innerHTML=row(d.over?0:1,`Duration ${d.total.toFixed(1)} h vs ${lim} h limit${d.over?' — needs rover assist or a forward base':''}`)+
+  row(d.mx==null?2:d.mx>=20?0:d.mx>=10?2:1,d.mx==null?'No tilt data on this route':`Max rover tilt ${d.mx.toFixed(0)}° (flag ≥10°, stop ≥20°)`)+
+  row(d.minEl>=5?1:0,`Sun ≥5° all EVA (min ${d.minEl.toFixed(0)}°)`)+
+  row(S.sw===null?2:S.sw?0:1,S.sw===null?'Space weather unavailable — check DONKI manually':S.sw?'Mars-bound CME forecast — hold EVA':'No Mars-bound CME in recent DONKI analyses')+
+  row(2,'Boxwork hollows are sand-filled: keep to ridgetops where possible')+row(f>1?2:1,f>1?'Rover assist: walk-back plan required':`Walk-back from farthest stop on foot`)}
+
+function drawMap(fit){[bx,tr,st,rt].forEach(g=>g.clearLayers());const P=S.pts;if(!P.length)return;
+ L.polyline(P.map(p=>[p.lat,p.lon]),{color:'#a855f7',weight:10,opacity:.25}).addTo(bx);
+ const el=P.map(p=>p.elev).filter(isFinite),lo=Math.min(...el),hi=Math.max(...el);
+ for(let i=1;i<P.length;i++)L.polyline([[P[i-1].lat,P[i-1].lon],[P[i].lat,P[i].lon]],{color:S.color==='tilt'?tc(P[i].tilt):ec((P[i].elev-lo)/((hi-lo)||1)),weight:3}).addTo(tr);
+ P.forEach((p,i)=>L.circleMarker([p.lat,p.lon],{radius:3,color:'#0e0806',weight:1,fillColor:'#e2e8f0',fillOpacity:.8}).addTo(tr).bindTooltip('Sol '+p.sol+(p.tilt!=null?' · tilt '+p.tilt.toFixed(1)+'°':'')+(isFinite(p.elev)?' · '+p.elev.toFixed(0)+' m':'')).on('click',()=>addCustom(i)));
+ S.days.forEach((d,k)=>{const c=[];for(let q=1;q<d.seq.length;q++){const a=d.seq[q-1].idx,b=d.seq[q].idx,r=[];for(let i=a;a<=b?i<=b:i>=b;a<=b?i++:i--)r.push([P[i].lat,P[i].lon]);c.push(...r)}
+  L.polyline(c,{color:DAYC[k%6],weight:k===S.day?6:3,opacity:k===S.day?.9:.45,dashArray:k===S.day?null:'6 6'}).addTo(rt).bindTooltip('EVA '+(k+1))});
+ const h=S.stops.find(s=>s.id===$('hab').value);
+ if(h)L.marker([P[h.idx].lat,P[h.idx].lon],{icon:L.divIcon({className:'',html:'<div style="background:#00f0ff;color:#04141a;font:700 11px monospace;padding:2px 5px;border:2px solid #04141a">HAB</div>'})}).addTo(st);
+ S.stops.filter(s=>s.on).forEach((s,n)=>{const p=P[s.idx];L.marker([p.lat,p.lon],{icon:L.divIcon({className:'',html:`<div style="background:#ff5722;color:#fff;width:22px;height:22px;border-radius:50%;border:2px solid #fff;font:700 12px sans-serif;text-align:center;line-height:18px">${n+1}</div>`,iconSize:[22,22]})}).addTo(st).bindTooltip(s.name+' (sol '+p.sol+')').on('click',()=>loadPOV(s))});
+ if(fit){const d=S.days[S.day],ix=d?d.seq.map(s=>s.idx):P.map((_,i)=>i);map.fitBounds(L.latLngBounds(ix.map(i=>[P[i].lat,P[i].lon])).pad(.3),{maxZoom:12})}}
+function drawProf(){const c=$('prof'),P=S.pts;if(!c||!P.length||!S.cD.length)return;const w=c.width=c.clientWidth,h=c.height=120,x=c.getContext('2d');x.clearRect(0,0,w,h);
+ const el=P.map(p=>p.elev),ok=el.filter(isFinite);if(ok.length<2)return;const lo=Math.min(...ok),hi=Math.max(...ok),D=S.cD.at(-1)||1,X=i=>10+(w-20)*S.cD[i]/D,Y=v=>h-16-(h-30)*(v-lo)/((hi-lo)||1);
+ for(let i=1;i<P.length;i++){x.strokeStyle=tc(P[i].tilt);x.lineWidth=3;x.beginPath();x.moveTo(X(i-1),Y(el[i-1]));x.lineTo(X(i),Y(el[i]));x.stroke()}
+ x.font='10px monospace';S.stops.filter(s=>s.on).forEach((s,n)=>{x.strokeStyle='#ff5722';x.lineWidth=1;x.beginPath();x.moveTo(X(s.idx),12);x.lineTo(X(s.idx),h-14);x.stroke();x.fillStyle='#ff5722';x.fillText(String(n+1),X(s.idx)-3,10)});
+ x.fillStyle='#94a3b8';x.fillText(hi.toFixed(0)+' m',10,22);x.fillText(lo.toFixed(0)+' m',10,h-2);x.fillText((D/1000).toFixed(1)+' km track',w-90,h-2)}
+
+/* ---- Space weather (NASA DONKI: ENLIL-modelled CME arrival at Mars) ---- */
+async function pollSW(){const e=new Date(),s=new Date(e-7*864e5),q=d=>d.toISOString().slice(0,10);
+ try{const j=await getJ(`https://api.nasa.gov/DONKI/CMEAnalysis?startDate=${q(s)}&endDate=${q(e)}&mostAccurateOnly=true&api_key=${KEY}`);let hit=null;
+  (j||[]).forEach(a=>(a.enlilList||[]).forEach(en=>(en.impactList||[]).forEach(i=>{if(/mars/i.test(i.location)){const t=new Date(i.arrivalTime);if(t>e-864e5&&(!hit||t<hit.t))hit={t,gl:i.isGlancingBlow}}})));
+  S.sw=!!hit;const msg=hit?`CME shock forecast at Mars ${hit.t.toISOString().slice(0,16).replace('T',' ')} UTC${hit.gl?' (glancing)':''}`:'No Mars-bound CME forecast in the last 7 days';
+  $('h-sw').textContent=hit?'ALERT':'quiet';$('h-sw').className=hit?'text-rose-400 font-bold':'text-emerald-400 font-bold';$('sw-detail').textContent=msg;chip('st-sw','live','DONKI live','sw','NASA DONKI via '+getJ.via+' — '+msg)}
+ catch(err){S.sw=null;$('h-sw').textContent='unavailable';$('sw-detail').textContent='DONKI could not be reached';chip('st-sw','err','DONKI offline','sw','NASA DONKI failed: '+((err&&err.message)||err))}
+ renderDay();renderPro()}
+
+/* ---- Rover photos taken at the stop's sol ---- */
+let povTok=0;
+async function loadPOV(s){if(!s)return;const tok=++povTok,box=$('pov'),note=$('pov-note'),sol=S.pts[s.idx]?S.pts[s.idx].sol:s.sol;$('pov-name').textContent=s.name+' (sol '+sol+')';box.textContent='Loading rover images…';note.textContent='';
+ const pref=/MAST|NAV|HAZ/i,u=x=>x.img_src.replace('http:','https:');
+ try{let ph=[];for(const k of [sol,sol+1,sol-1]){const j=await getJ(`https://api.nasa.gov/mars-photos/api/v1/rovers/${SITE.rover}/photos?sol=${k}&api_key=${KEY}`);ph=j.photos||[];if(ph.length)break}
+  if(tok!==povTok)return;if(!ph.length)throw new Error('no photos');const pick=ph.filter(x=>pref.test(x.camera.name)).concat(ph).filter((x,i,a)=>a.indexOf(x)===i).slice(0,6);
+  box.innerHTML=pick.map(x=>`<a href="${u(x)}" target="_blank"><img src="${u(x)}" class="w-full h-20 object-cover rounded border border-slate-800" loading="lazy"></a>`).join('');
+  note.textContent=`Curiosity, sol ${pick[0].sol} (${pick[0].earth_date}) — ${[...new Set(pick.map(x=>x.camera.name))].join(', ')} · NASA Mars Rover Photos API`;S.status.photos=['live','Rover Photos API via '+getJ.via]}
+ catch(e){try{const j=await getJ('https://images-api.nasa.gov/search?q=curiosity%20boxwork&media_type=image'),it=j.collection.items.slice(0,6);if(tok!==povTok)return;
+   box.innerHTML=it.map(x=>`<img src="${x.links[0].href}" class="w-full h-20 object-cover rounded border border-slate-800">`).join('');
+   note.textContent='Rover Photos API unavailable ('+((e&&e.message)||e)+'). Showing Curiosity boxwork images from the NASA Image Library (not sol-specific).';S.status.photos=['snap','Photos API failed; Image Library fallback']}
+  catch(e2){box.textContent='Images unavailable.';S.status.photos=['err','No image service reachable']}}}
+
+/* ---- Protocols (react to live data and the selected EVA) ---- */
+function renderPro(){const d=S.days[S.day],ls=marsNow(SITE.lon,SITE.lat).ls,mx=d&&d.mx!=null?d.mx:0;
+ const C=[[S.sw===true,S.sw===null,'Mars-bound solar storm (CME)','Stop outbound travel, return to the shielded habitat module, and hold until DONKI shows no incoming shock.','Trigger: NASA DONKI + ENLIL model'],
+  [ls>=180,false,'Dust season / storm approaching','Seal suit vents, keep loops short, stay off exposed ridgetops, and check MRO MARCI imagery before leaving. Expect less sunlight and a smaller day-night swing.','Trigger: season Ls ≥ 180° (Mars24)'],
+  [mx>=20,mx>=10&&mx<20,'Steep or rough ground','Slow down, work in pairs, use rover support on steep sections, or pick a gentler order of stops. Prefer ridgetops over sand-filled hollows.','Trigger: Curiosity rover tilt on the selected EVA'],
+  [!!d&&(d.minEl<5||d.minT<-70),false,'Low sun or deep cold','Shorten the EVA or move the start time, and check suit heating before departure. Temperature is a model estimate.','Trigger: computed sun elevation / temperature curve'],
+  [!!d&&d.over,false,'EVA longer than the limit','Split the stops across more EVAs, add rover assist, or set up a forward base camp closer to the stops.','Trigger: planned time vs EVA limit']];
+ $('pro').innerHTML=C.map(c=>`<div class="hud p-4 border-l-4 ${c[0]?'!border-l-rose-500':c[1]?'!border-l-amber-400':'!border-l-emerald-500'}"><div class="font-bold ${c[0]?'text-rose-300':c[1]?'text-amber-300':'text-emerald-400'}">${c[0]?'ACTIVE':c[1]?'WATCH':'CLEAR'} · ${c[2]}</div><p class="mt-1 text-slate-300">${c[3]}</p><p class="mt-1 text-[10px] text-cyan-300 mono">${c[4]}</p></div>`).join('')}
+
+/* ---- Environment ---- */
+function renderEnv(){const G=[['CO₂',95.1,'#f43f5e'],['N₂',2.59,'#a855f7'],['Ar',1.94,'#f59e0b'],['O₂',.161,'#22d3ee'],['CO',.058,'#94a3b8']];
+ $('gas').innerHTML=G.map(([n,v,c])=>`<div><div class="flex justify-between"><span>${n}</span><b>${v}%</b></div><div class="h-2 bg-slate-900 rounded"><div class="h-2 rounded" style="width:${Math.max(v,1.5)}%;background:${c}"></div></div></div>`).join('');
+ const m=marsNow(SITE.lon,SITE.lat);$('season').textContent=`Season now: Ls ${m.ls.toFixed(0)}°. Dust storms are most likely in the second half of the Mars year (Ls ≈ 180–360), when sunlight drops and the day-night temperature swing shrinks (the 2018 global dust storm cut Gale's daily air-temperature range by 56 K, per REMS). `+(m.ls>=180?'Dust risk is elevated now.':'Dust risk is lower now, but check MARCI imagery before long EVAs.')}
+function drawSol(){const c=$('sol');if(!c)return;const w=c.width=c.clientWidth,h=c.height=90,x=c.getContext('2d'),m=marsNow(SITE.lon,SITE.lat);x.clearRect(0,0,w,h);
+ for(let i=0;i<w;i++){const e=sunEl(SITE.lat,m.dec,24*i/w);x.fillStyle=e>5?'#f59e0b55':e>0?'#f59e0b22':'#0f172a';x.fillRect(i,0,1,60)}
+ x.strokeStyle='#22d3ee';x.beginPath();for(let i=0;i<w;i++){const y=55-(tmod(24*i/w)+80)/75*50;i?x.lineTo(i,y):x.moveTo(i,y)}x.stroke();
+ x.fillStyle='#ff5722';x.fillRect(w*m.ltst/24-1,0,2,60);x.fillStyle='#94a3b8';x.font='10px monospace';[0,6,12,18,24].forEach(t=>x.fillText(String(t).padStart(2,'0')+'h',Math.min(w*t/24,w-22),76));x.fillText('now = orange · shaded = sun above 5°',w/2-100,88)}
+
+/* ---- Sources + connection test ---- */
+const DS=[['MSL waypoints (NASA MMGIS)','Track, elevation, rover tilt, stop positions (matched by sol)','https://mars.nasa.gov/mmgis-maps/MSL/Layers/json/MSL_waypoints.json','live'],
+ ['MOLA / Viking via Mars Trek tiles','Topographic and optical basemaps','https://trek.nasa.gov/tiles/apidoc/trekAPI.html?body=mars','live'],
+ ['NASA DONKI (CME analysis + ENLIL)','Space-weather alert for Mars','https://ccmc.gsfc.nasa.gov/tools/DONKI','live'],
+ ['Mars Rover Photos API / NASA Image Library','Point-of-view imagery at each stop','https://api.nasa.gov','live'],
+ ['MSL RAD, SAM; CheMin/ChemCam boxwork results','Radiation, atmosphere, per-stop chemistry notes (embedded from publications)','https://science.nasa.gov/blog/curiosity-blog-sols-4804-4811-kicking-off-the-final-phase-of-boxwork-exploration','embedded'],
+ ['AI4MARS terrain labels (soil, bedrock, sand, big rock)','Planned: obstacle layer. Needs a model run on Navcam frames — not wired yet','https://data.nasa.gov/dataset/ai4mars-a-dataset-for-terrain-aware-autonomous-driving-on-mars','roadmap'],
+ ['MGS TES global temperature','Planned: replace the temperature model','https://data.nasa.gov/dataset/mgs-sampler-thermal-emission-spectrometer-global-temperature-0895b','roadmap']];
+function renderSrc(){$('status').innerHTML=Object.entries(S.status).map(([k,[c,t]])=>`<div><span class="chip ${c}">${k}</span> ${t}</div>`).join('');
+ $('ds').innerHTML=DS.map(d=>`<tr class="border-t border-slate-800"><td><a class="text-cyan-300 underline" href="${d[2]}" target="_blank">${d[0]}</a></td><td class="text-slate-300">${d[1]}</td><td><span class="chip ${d[3]==='live'?'live':d[3]==='embedded'?'snap':'mdl'}">${d[3]}</span></td></tr>`).join('')}
+async function testAll(){const out=$('diag');out.textContent='Testing…';const q=d=>d.toISOString().slice(0,10),e=new Date(),s=new Date(e-3*864e5);
+ const T=[['Proxy /api/nasa',async()=>{if(!location.protocol.startsWith('http'))throw new Error('page not served over http(s)');const r=await fetch('/api/nasa?u='+encodeURIComponent('https://images-api.nasa.gov/search?q=mars&media_type=image'));if(!r.ok)throw new Error('HTTP '+r.status+' — api/nasa.js not deployed (needs Vercel)');const j=await r.json();if(!j.collection)throw new Error('reply is not NASA JSON');return'proxy working'}],
+ ['Curiosity traverse',async()=>{const j=await getJ(SITE.url),a=j.features||j,p=(a.at(-1).properties||a.at(-1));return a.length+' drives via '+getJ.via+'; latest sol '+p.sol+'; fields: '+Object.keys(p).join(', ')}],
+ ['DONKI space weather',async()=>{const j=await getJ(`https://api.nasa.gov/DONKI/CMEAnalysis?startDate=${q(s)}&endDate=${q(e)}&mostAccurateOnly=true&api_key=${KEY}`);return(j.length||0)+' CME analyses via '+getJ.via}],
+ ['Rover Photos API',async()=>{const j=await getJ(`https://api.nasa.gov/mars-photos/api/v1/rovers/curiosity/photos?sol=4720&api_key=${KEY}`);return(j.photos||[]).length+' photos for sol 4720 via '+getJ.via}],
+ ['NASA Image Library',async()=>{const j=await getJ('https://images-api.nasa.gov/search?q=curiosity&media_type=image');return j.collection.items.length+' items via '+getJ.via}],
+ ['Mars Trek MOLA tile',()=>new Promise((ok,no)=>{const i=new Image();i.onload=()=>ok('tile 0/0/0 loaded');i.onerror=()=>no(new Error('tile blocked or URL changed'));i.src=TREK+MOLA+'0/0/0.jpg?'+Date.now();setTimeout(()=>no(new Error('timeout')),12000)})]];
+ out.innerHTML='';for(const[n,f]of T){const t0=performance.now();let c='live',m;try{m=await f()}catch(x){c='err';m=(x&&x.message)||String(x)}
+  out.innerHTML+=`<div><span class="chip ${c}">${c==='live'?'OK':'FAIL'}</span> ${n} — ${m} (${Math.round(performance.now()-t0)} ms)</div>`}
+ out.innerHTML+='<div class="text-slate-500 mt-1">Send any FAIL line to your developer (or to Claude) to fix that connection.</div>'}
+
+renderEnv();tick();init();
+</script>
+</body>
+</html>
