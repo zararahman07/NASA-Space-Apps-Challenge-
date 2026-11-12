@@ -1,13 +1,14 @@
-MARSENSE is an interactive, web-based mission control dashboard designed for the NASA Space Apps Challenge. It provides a comprehensive simulation for ensuring safe human exploration on Mars by balancing environmental hazards, resource logistics, and life support systems.
+# MARSWalk — Boxwork Science EVA Planner
 
-##  Features
+NASA Space Apps Challenge entry. A map and planning tool for a Mars astronaut exploring the **boxwork terrain on Mount Sharp, Gale Crater**.
 
-* **Interactive Martian Surface Map:** An equirectangular map allowing users to select pre-defined landing sites (like Jezero Crater) or drop custom coordinates to survey their surroundings. The base map data and topographical context are modeled after NASA/JPL Mars Trek (Solar System Treks).
-* **Solar Energy Grid Balancer:** A dynamic tool that calculates photovoltaic power generation against the settlement's demand load. It factors in dust obscuration and panel efficiency using solar constant metrics derived from the Mars Climate Database and the MRO Mars Climate Sounder.
-* **Atmospheric Composition Scanner:** A dedicated panel breaking down the raw atmospheric gases (95.32% CO₂, 2.6% N₂, etc.) at a surface pressure of 6.1 mbar. It highlights the environment's In-Situ Resource Utilization (ISRU) potential, citing data from the Curiosity REMS, Perseverance MEDA stations, and NASA Viking/Curiosity SAM Instruments.
-* **Radiation Level Monitoring:** Real-time tracking of localized radiation risks to determine shielding requirements, powered conceptually by data from the Mars Odyssey GRS/HEND, Curiosity RAD detector, and MAVEN SEP instruments.
-* **Survival Operations Manual:** A built-in guide outlining standard operating protocols (SOPs) for critical scenarios. It dictates specific actions—such as aborting an Extravehicular Activity (EVA) due to a radiation spike (detected via MAVEN SEP) or seeking low ground during an approaching dust plume (tracked via MRO MARCI).
-* **Data Source Traceability Hub:** A transparency module designed to establish authenticity for the Space Apps Challenge. It explicitly links every dashboard reading and hazard simulation back to its verified NASA dataset or instrument origin to prove data validity.
-* **Topographical EVA Route Mapping:** When a destination is selected, the map plots a direct route from Habitat Alpha. By referencing MOLA global elevation and HiRISE slope rasters, it color-codes the path as a safe traverse (solid green line) or a rough, high-slope terrain risk (dashed red line).
-* **Proactive Hazard Advisory System:** An early-warning alert banner that triggers automatically when a hazardous site is analyzed. It gives users immediate warnings about severe dust activity, terrain roughness, or solar energetic particle events before they commit to an EVA.
+- Multi-stop science route (contact, Altadena, Nevado Sajama, southern boundary + custom stops), split into EVAs automatically
+- Layers: MOLA topography, Viking optical, Curiosity track coloured by tilt/elevation, per-stop chemistry notes, radiation (RAD + live DONKI), computed sun/temperature
+- Safety: go/no-go checks, live space-weather alert, hazard protocols
 
+Live NASA sources: MMGIS Curiosity waypoints, Mars Trek tiles, DONKI, Mars Rover Photos API, NASA Image Library.
+
+## Deploy
+Static site + one serverless function. Push to GitHub, import in Vercel (Framework: Other).
+Optional: add env var `NASA_API_KEY` (free at https://api.nasa.gov).
+Open the **Data & sources** tab and press **Run test** to verify every connection.
