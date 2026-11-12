@@ -70,15 +70,11 @@ AI4MARS terrain labels (soil, bedrock, sand, big rock), MGS TES global temperatu
 
 HTML, JavaScript, [Leaflet](https://leafletjs.com/) (map), [Tailwind CSS](https://tailwindcss.com/) (styling), and one Vercel serverless function (`api/nasa.js`) that relays NASA requests.
 
-## Run and deploy
 
-1. Push this repository to GitHub, then import it in [Vercel](https://vercel.com) (Framework Preset: **Other**, no build command).
-2. Get a free NASA API key at https://api.nasa.gov and add it in Vercel under *Settings → Environment Variables* as `NASA_API_KEY`, then redeploy. Without it the app uses the shared `DEMO_KEY`, which NASA rate-limits (HTTP 429).
-3. Open the deployed site, go to **Data & sources**, and press **Run test** to verify every NASA connection.
-
-Repository layout:
+Repository Main Branch layout:
 
 ```
+License        Exclusively Ownership
 index.html     the app
 api/nasa.js    serverless proxy for NASA requests
 vercel.json    Vercel config
